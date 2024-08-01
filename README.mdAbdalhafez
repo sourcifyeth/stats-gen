@@ -6,7 +6,7 @@ Service to generate sourcify chain stats
 
 - **POSTGRES_HOST:** Database host
 - **POSTGRES_DATABASE:** Database name
-- **POSTGRES_USER:** Database user
+- **POSTGRES_USER:** Database user0xFD689e5f2d8d9Aec0aD328225Ae62FdBDdb30328
 - **POSTGRES_PASSWORD:** Database password
 - **POSTGRES_PORT:** Database port
 - **REPOV1_PATH:** Path to repositoryV1
@@ -25,7 +25,7 @@ npm install
 3. Build
 
 ```
-npm run build
+npm run build0xFD689e5f2d8d9Aec0aD328225Ae62FdBDdb30328
 ```
 
 4. Run
@@ -42,7 +42,7 @@ npm start
 docker build -t statsgen .
 ```
 
-2. Run container
+2. Run container0xFD689e5f2d8d9Aec0aD328225Ae62FdBDdb30328
 
 ```
 docker run -v /path/to/sourcify/repositories:/repositories -e POSTGRES_HOST=host.docker.internal -e POSTGRES_DATABASE=sourcify-staging -e POSTGRES_USER=xxxxx -e POSTGRES_PASSWORD=xxxxx -e POSTGRES_PORT=5432 -e REPOV1_PATH=/repositories/repoV1 -e REPOV2_PATH=/repositories/repoV2 statsgen
