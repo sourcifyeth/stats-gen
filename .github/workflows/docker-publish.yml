@@ -6,7 +6,7 @@ on:
 
 env:
   NAMESPACE: ghcr.io/ethereum/sourcify
-  IMAGE_NAME: $NAMESPACE/stats-gen
+  IMAGE_NAME: ghcr.io/ethereum/sourcify/stats-gen
   GITHUB_CR_PAT: ${{ secrets.CR_PAT }}
 
 jobs:
