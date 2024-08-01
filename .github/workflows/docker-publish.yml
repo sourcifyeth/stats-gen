@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Log into registry ${{ env.NAMESPACE }}
-        run: echo ${{ env.GITHUB_CR_PAT }} | docker login ghcr.io --username kuzdogan --password-stdin
+        run: echo ${{ env.GITHUB_CR_PAT }} | docker login ghcr.io --username marcocastignoli --password-stdin
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
