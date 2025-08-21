@@ -5,8 +5,8 @@ on:
     branches: [ "master" ]
 
 env:
-  NAMESPACE: ghcr.io/argotorg
-  IMAGE_NAME: ghcr.io/argotorg/stats-gen
+  NAMESPACE: ghcr.io/argotorg/sourcify
+  IMAGE_NAME: ghcr.io/argotorg/sourcify/stats-gen
   GITHUB_CR_PAT: ${{ secrets.CR_PAT }}
 
 jobs:
