@@ -1,11 +1,12 @@
 {
   "name": "stats-gen",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Service to generate sourcify chain stats",
   "main": "index.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test": "tsc -p tsconfig.test.json && node --test \"dist-test/test/*.test.js\""
   },
   "repository": {
     "type": "git",
@@ -24,14 +25,13 @@
   },
   "homepage": "https://github.com/sourcifyeth/stats-gen#readme",
   "dependencies": {
+    "@google-cloud/bigquery": "^9.1.0",
     "chalk": "^4.1.2",
     "dotenv": "16.4.5",
-    "pg": "^8.12.0",
     "winston": "3.13.1"
   },
   "devDependencies": {
     "@types/node": "20.14.13",
-    "@types/pg": "^8.11.6",
     "typescript": "5.5.4"
   }
 }

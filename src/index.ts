@@ -3,9 +3,15 @@ import StatsGen from "./StatsGen";
 
 async function main() {
   const statsGen = new StatsGen();
-  await statsGen.start();
-  logger.info("Stats generation completed successfully");
-  await statsGen.close();
+  try {
+    await statsGen.start();
+    logger.info("Stats generation completed successfully");
+  } finally {
+    await statsGen.close();
+  }
 }
 
-main();
+main().catch((error) => {
+  logger.error("Stats generation failed", { error });
+  process.exit(1);
+});

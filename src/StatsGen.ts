@@ -1,64 +1,126 @@
 import logger from "./logger";
 import dotenv from "dotenv";
 import { ContractsPerChain, Manifest, Stats } from "./types";
-import { Pool, QueryResult } from "pg";
+import { BigQuery } from "@google-cloud/bigquery";
 import { writeFile } from "fs/promises";
 
 dotenv.config();
 
+const PROJECT_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+const DATASET_PATTERN = /^[A-Za-z0-9_]+$/;
+const DEFAULT_LOCATION = "europe-west1";
+const DEFAULT_MAX_BYTES_BILLED = "10000000000";
+
+export interface BigQueryConfig {
+  projectId?: string;
+  dataset: string;
+  location: string;
+  maximumBytesBilled: string;
+}
+
+export function readBigQueryConfig(
+  env: NodeJS.ProcessEnv = process.env
+): BigQueryConfig {
+  const dataset = env.BIGQUERY_DATASET;
+  if (!dataset) {
+    throw new Error("BIGQUERY_DATASET is missing");
+  }
+  if (!DATASET_PATTERN.test(dataset)) {
+    throw new Error("BIGQUERY_DATASET has invalid characters");
+  }
+
+  const projectId = env.BIGQUERY_PROJECT_ID || undefined;
+  if (projectId !== undefined && !PROJECT_ID_PATTERN.test(projectId)) {
+    throw new Error("BIGQUERY_PROJECT_ID has invalid characters");
+  }
+
+  const maximumBytesBilled =
+    env.BIGQUERY_MAX_BYTES_BILLED || DEFAULT_MAX_BYTES_BILLED;
+  if (!/^[1-9][0-9]*$/.test(maximumBytesBilled)) {
+    throw new Error("BIGQUERY_MAX_BYTES_BILLED must be a positive integer");
+  }
+
+  return {
+    projectId,
+    dataset,
+    location: env.BIGQUERY_LOCATION || DEFAULT_LOCATION,
+    maximumBytesBilled,
+  };
+}
+
+export function buildCountQuery(projectId: string, dataset: string): string {
+  if (!PROJECT_ID_PATTERN.test(projectId)) {
+    throw new Error("Project id has invalid characters");
+  }
+  if (!DATASET_PATTERN.test(dataset)) {
+    throw new Error("Dataset has invalid characters");
+  }
+  return `
+    SELECT
+      chain_id,
+      COUNTIF(COALESCE(creation_match, '') = 'perfect' OR runtime_match = 'perfect') AS full_match,
+      COUNTIF(COALESCE(creation_match, '') != 'perfect' AND runtime_match != 'perfect') AS partial_match
+    FROM \`${projectId}.${dataset}.public_sourcify_matches\`
+    GROUP BY chain_id
+  `;
+}
+
+export interface CountRow {
+  chain_id: unknown;
+  full_match: unknown;
+  partial_match: unknown;
+}
+
+// The client can return INT64 as a number, a string or a wrapped value.
+export function mapCountRows(rows: CountRow[]): ContractsPerChain[] {
+  const result: ContractsPerChain[] = [];
+  for (const row of rows) {
+    if (row.chain_id === null || row.chain_id === undefined) {
+      logger.warn("Skipping row without chain_id", { row });
+      continue;
+    }
+    const chainId = Number(row.chain_id);
+    const full = Number(row.full_match);
+    const partial = Number(row.partial_match);
+    if (!Number.isFinite(chainId) || !Number.isFinite(full) || !Number.isFinite(partial)) {
+      throw new Error(`Row has non-numeric values: ${JSON.stringify(row)}`);
+    }
+    result.push({ chain_id: chainId, full, partial });
+  }
+  return result;
+}
+
 export default class StatsGen {
-  private databasePool?: Pool;
+  private bigquery?: BigQuery;
+  private config: BigQueryConfig;
 
   constructor() {
-    if (
-      !process.env.POSTGRES_HOST ||
-      !process.env.POSTGRES_DATABASE ||
-      !process.env.POSTGRES_USER ||
-      !process.env.POSTGRES_PASSWORD ||
-      !process.env.REPOV1_PATH ||
-      !process.env.REPOV2_PATH
-    ) {
-      throw new Error("One or more required environment variables are missing");
+    if (!process.env.REPOV1_PATH || !process.env.REPOV2_PATH) {
+      throw new Error("REPOV1_PATH or REPOV2_PATH is missing");
     }
+    this.config = readBigQueryConfig();
   }
 
   async init(): Promise<boolean> {
-    // if the database is already initialized
-    if (this.databasePool != undefined) {
+    if (this.bigquery != undefined) {
       return true;
     }
 
-    logger.debug(`Initializing database pool`);
-
-    this.databasePool = new Pool({
-      host: process.env.POSTGRES_HOST,
-      port: parseInt(process.env.POSTGRES_PORT || "5432"),
-      database: process.env.POSTGRES_DATABASE,
-      user: process.env.POSTGRES_USER,
-      password: process.env.POSTGRES_PASSWORD,
-      max: 5,
+    logger.debug(`Initializing BigQuery client`);
+    this.bigquery = new BigQuery({
+      projectId: this.config.projectId,
+      location: this.config.location,
     });
 
-    // Checking pool health before continuing
-    try {
-      logger.debug(`Checking database pool health`);
-      await this.databasePool.query("SELECT 1;");
-    } catch (error) {
-      logger.error(`Cannot connect`, {
-        host: process.env.POSTGRES_HOST,
-        port: process.env.POSTGRES_PORT,
-        database: process.env.POSTGRES_DATABASE,
-        user: process.env.POSTGRES_USER,
-        error,
-      });
-      throw new Error(`Cannot connect`);
+    if (!this.config.projectId) {
+      this.config.projectId = await this.bigquery.getProjectId();
     }
 
-    logger.info(`Database initialized`, {
-      host: process.env.POSTGRES_HOST,
-      port: process.env.POSTGRES_PORT,
-      database: process.env.POSTGRES_DATABASE,
-      user: process.env.POSTGRES_USER,
+    logger.info(`BigQuery client initialized`, {
+      projectId: this.config.projectId,
+      dataset: this.config.dataset,
+      location: this.config.location,
+      maximumBytesBilled: this.config.maximumBytesBilled,
     });
     return true;
   }
@@ -71,12 +133,16 @@ export default class StatsGen {
     try {
       contractsPerChain = await this.countContractsPerChain();
     } catch (error: any) {
-      logger.error("Error while querying database", {
+      logger.error("Error while querying BigQuery", {
         error,
       });
-      throw new Error("Error while querying database");
+      throw new Error("Error while querying BigQuery");
     }
-    logger.info("Count completed");
+    logger.info("Count completed", {
+      chains: contractsPerChain.length,
+      fullMatches: contractsPerChain.reduce((sum, c) => sum + c.full, 0),
+      partialMatches: contractsPerChain.reduce((sum, c) => sum + c.partial, 0),
+    });
 
     logger.info("Formatting results in stats.json");
     let stats;
@@ -120,30 +186,31 @@ export default class StatsGen {
   }
 
   async close() {
-    this.databasePool?.end();
+    // The BigQuery client has no open connection to close.
+    this.bigquery = undefined;
   }
 
   async countContractsPerChain(): Promise<ContractsPerChain[]> {
-    if (!this.databasePool) {
-      throw new Error("Database pool is not initialized");
+    if (!this.bigquery || !this.config.projectId) {
+      throw new Error("BigQuery client is not initialized");
     }
 
-    const query = `
-      SELECT
-        contract_deployments.chain_id AS chain_id,
-        CAST(SUM(CASE 
-          WHEN COALESCE(sourcify_matches.creation_match, '') = 'perfect' OR sourcify_matches.runtime_match = 'perfect' THEN 1 ELSE 0 END) AS INTEGER) AS full,
-        CAST(SUM(CASE 
-          WHEN COALESCE(sourcify_matches.creation_match, '') != 'perfect' AND sourcify_matches.runtime_match != 'perfect' THEN 1 ELSE 0 END) AS INTEGER) AS partial
-      FROM sourcify_matches
-      JOIN verified_contracts ON verified_contracts.id = sourcify_matches.verified_contract_id
-      JOIN contract_deployments ON contract_deployments.id = verified_contracts.deployment_id
-      GROUP BY contract_deployments.chain_id;
-    `;
+    const query = buildCountQuery(this.config.projectId, this.config.dataset);
+    const [job] = await this.bigquery.createQueryJob({
+      query,
+      location: this.config.location,
+      maximumBytesBilled: this.config.maximumBytesBilled,
+      useLegacySql: false,
+    });
+    const [rows] = await job.getQueryResults();
+    const [metadata] = await job.getMetadata();
+    logger.info("Query job completed", {
+      jobId: job.id,
+      totalBytesBilled: metadata?.statistics?.query?.totalBytesBilled,
+      totalBytesProcessed: metadata?.statistics?.query?.totalBytesProcessed,
+    });
 
-    const result: QueryResult<ContractsPerChain> =
-      await this.databasePool.query(query);
-    return result.rows;
+    return mapCountRows(rows as CountRow[]);
   }
 
   generateStats(contractsPerChain: ContractsPerChain[]): Stats {
