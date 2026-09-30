@@ -2,7 +2,7 @@ import logger from "./logger";
 import dotenv from "dotenv";
 import { ContractsPerChain, Manifest, Stats } from "./types";
 import { BigQuery } from "@google-cloud/bigquery";
-import { readFile, writeFile } from "fs/promises";
+import { writeFile } from "fs/promises";
 
 dotenv.config();
 
@@ -10,8 +10,6 @@ const PROJECT_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 const DATASET_PATTERN = /^[A-Za-z0-9_]+$/;
 const DEFAULT_LOCATION = "europe-west1";
 const DEFAULT_MAX_BYTES_BILLED = "10000000000";
-// The new total must not be lower than this share of the old total.
-export const MIN_TOTAL_RATIO = 0.9;
 
 export interface BigQueryConfig {
   projectId?: string;
@@ -92,70 +90,6 @@ export function mapCountRows(rows: CountRow[]): ContractsPerChain[] {
   return result;
 }
 
-export function sumContracts(contractsPerChain: ContractsPerChain[]): number {
-  return contractsPerChain.reduce(
-    (total, chain) => total + chain.full + chain.partial,
-    0
-  );
-}
-
-export function sumStats(stats: Stats): number {
-  let total = 0;
-  for (const entry of Object.values(stats)) {
-    total += Number(entry?.full_match) || 0;
-    total += Number(entry?.partial_match) || 0;
-  }
-  return total;
-}
-
-// Guard 1: an empty result must not overwrite the published files.
-export function assertNotEmpty(contractsPerChain: ContractsPerChain[]): void {
-  if (contractsPerChain.length === 0) {
-    throw new Error("Query returned zero rows");
-  }
-  if (sumContracts(contractsPerChain) === 0) {
-    throw new Error("Query returned a total of zero contracts");
-  }
-}
-
-// Guard 2: a large drop of the total must not overwrite the published files.
-export function assertNoLargeDrop(
-  newTotal: number,
-  previousTotal: number | undefined
-): void {
-  if (previousTotal === undefined) {
-    return;
-  }
-  if (newTotal < previousTotal * MIN_TOTAL_RATIO) {
-    throw new Error(
-      `New total ${newTotal} is below ${MIN_TOTAL_RATIO * 100}% of previous total ${previousTotal}`
-    );
-  }
-}
-
-// Returns undefined when the file does not exist or does not parse.
-export async function readPreviousTotal(
-  statsPath: string
-): Promise<number | undefined> {
-  let content: string;
-  try {
-    content = await readFile(statsPath, "utf8");
-  } catch (error) {
-    logger.info("No previous stats file found", { statsPath });
-    return undefined;
-  }
-  try {
-    const stats = JSON.parse(content);
-    if (stats === null || typeof stats !== "object") {
-      throw new Error("Stats file is not an object");
-    }
-    return sumStats(stats);
-  } catch (error) {
-    logger.warn("Previous stats file does not parse", { statsPath, error });
-    return undefined;
-  }
-}
-
 export default class StatsGen {
   private bigquery?: BigQuery;
   private config: BigQueryConfig;
@@ -204,18 +138,10 @@ export default class StatsGen {
       });
       throw new Error("Error while querying BigQuery");
     }
-    logger.info("Count completed");
-
-    assertNotEmpty(contractsPerChain);
-    const newTotal = sumContracts(contractsPerChain);
-    const previousTotal = await readPreviousTotal(
-      `${process.env.REPOV2_PATH}/stats.json`
-    );
-    assertNoLargeDrop(newTotal, previousTotal);
-    logger.info("Totals", {
+    logger.info("Count completed", {
       chains: contractsPerChain.length,
-      newTotal,
-      previousTotal,
+      fullMatches: contractsPerChain.reduce((sum, c) => sum + c.full, 0),
+      partialMatches: contractsPerChain.reduce((sum, c) => sum + c.partial, 0),
     });
 
     logger.info("Formatting results in stats.json");

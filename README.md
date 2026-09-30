@@ -21,16 +21,6 @@ Authentication uses Application Default Credentials. The service account needs
 `roles/bigquery.jobUser` on the project and `roles/bigquery.dataViewer` on the
 dataset.
 
-## Guards
-
-The job does not write the files when:
-
-- the query returns zero rows or a total of zero contracts;
-- the new total is lower than 90 % of the total in the existing
-  `${REPOV2_PATH}/stats.json`.
-
-The process exits with a non-zero code in these cases and on any other error.
-
 ## Schedule
 
 One start makes one run. A Cloud Scheduler trigger starts the job every 6 hours

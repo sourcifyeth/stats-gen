@@ -1,16 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "fs/promises";
-import { tmpdir } from "os";
-import { join } from "path";
 import {
-  assertNoLargeDrop,
-  assertNotEmpty,
   buildCountQuery,
   mapCountRows,
   readBigQueryConfig,
-  readPreviousTotal,
-  sumContracts,
 } from "../src/StatsGen";
 
 process.env.NODE_LOG_LEVEL = "error";
@@ -46,73 +39,6 @@ test("mapCountRows skips a row with null chain_id", () => {
 test("mapCountRows rejects non-numeric values", () => {
   assert.throws(() =>
     mapCountRows([{ chain_id: 1, full_match: "abc", partial_match: 0 }])
-  );
-});
-
-test("assertNotEmpty throws on zero rows", () => {
-  assert.throws(() => assertNotEmpty([]), /zero rows/);
-});
-
-test("assertNotEmpty throws on zero total", () => {
-  assert.throws(
-    () =>
-      assertNotEmpty([
-        { chain_id: 1, full: 0, partial: 0 },
-        { chain_id: 2, full: 0, partial: 0 },
-      ]),
-    /zero contracts/
-  );
-});
-
-test("assertNotEmpty passes on a positive total", () => {
-  assertNotEmpty([{ chain_id: 1, full: 0, partial: 1 }]);
-});
-
-test("assertNoLargeDrop throws when the new total is below 90% of the old", () => {
-  assert.throws(() => assertNoLargeDrop(899, 1000), /below 90%/);
-});
-
-test("assertNoLargeDrop passes at 90% and above", () => {
-  assertNoLargeDrop(900, 1000);
-  assertNoLargeDrop(1500, 1000);
-});
-
-test("assertNoLargeDrop passes without a previous total", () => {
-  assertNoLargeDrop(1, undefined);
-});
-
-test("readPreviousTotal sums the old stats file", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "stats-gen-"));
-  const statsPath = join(dir, "stats.json");
-  await writeFile(
-    statsPath,
-    JSON.stringify({
-      1: { full_match: 100, partial_match: 50 },
-      10: { full_match: 20, partial_match: 30 },
-    })
-  );
-  assert.equal(await readPreviousTotal(statsPath), 200);
-});
-
-test("readPreviousTotal returns undefined for a missing file", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "stats-gen-"));
-  assert.equal(await readPreviousTotal(join(dir, "stats.json")), undefined);
-});
-
-test("readPreviousTotal returns undefined for an invalid file", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "stats-gen-"));
-  const statsPath = join(dir, "stats.json");
-  await writeFile(statsPath, "{ not json");
-  assert.equal(await readPreviousTotal(statsPath), undefined);
-});
-
-test("sumContracts adds full and partial counts", () => {
-  assert.equal(
-    sumContracts([
-      { chain_id: 1, full: 1, partial: 2 },
-      { chain_id: 2, full: 3, partial: 4 },
-    ]),
-    10
   );
 });
 

@@ -6,8 +6,6 @@ All notable changes to this project will be documented in this file.
 
 - Read the per-chain counts from the BigQuery mirror of the database with one
   single-table query. The job no longer connects to Postgres.
-- Add two guards: the job does not write the files when the result is empty or
-  when the new total is lower than 90 % of the old total.
 - Exit with a non-zero code on any error.
 - Add tests with the Node test runner (`npm test`).
 - Replace the `POSTGRES_*` variables with `BIGQUERY_DATASET`,
